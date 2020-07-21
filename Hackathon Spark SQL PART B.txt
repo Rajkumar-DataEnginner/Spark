@@ -1,0 +1,213 @@
+package org.inceptz.spark.hackathon
+
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql._;
+//import sqlc.implicits
+import org.apache.spark.sql.types.{StructType, StructField, StringType, IntegerType, DateType, TimestampType}
+object temp {
+  
+    val insurschema = StructType(Array(StructField("IssuerId", IntegerType,
+true),StructField("IssuerId2", IntegerType, true),StructField("BusinessDate", DateType,
+true),StructField("StateCode", StringType, true),StructField("SourceName", StringType,
+true),StructField("NetworkName", StringType, true),StructField("NetworkURL", StringType,
+true),StructField("custnum", IntegerType, true),StructField("MarketCoverage", StringType,
+true),StructField("DentalOnlyPlan", StringType, true)));
+  
+  def main(args:Array[String])
+  {
+   
+   
+println("We are going to understand options to acquire and store the hetrogeneous data from hetrogenous sources and stores")
+ 
+val spark=SparkSession.builder().appName("Sample sql app").master("local[*]")
+.config("hive.metastore.uris","thrift://localhost:9083")
+.config("spark.sql.warehouse.dir","hdfs://localhost:54310/user/hive/warehouse")
+.config("spark.history.fs.logDirectory", "file:///tmp/spark-events")
+.config("spark.eventLog.dir", "file:////tmp/spark-events")
+.config("spark.eventLog.enabled", "true")
+.enableHiveSupport().getOrCreate();
+spark.sparkContext.setLogLevel("error")
+
+val sqlc=spark.sqlContext;
+ 
+ 
+
+import sqlc.implicits._
+import spark.implicits._
+ 
+val insurDF1 = spark.read.option("delimiter",",").option("header","true").option("escape",",").schema(insurschema).csv("hdfs://localhost:54310/user/hduser/sparkhack2/insuranceinfo2.csv","hdfs://localhost:54310/user/hduser/sparkhack2/insuranceinfo1x.csv")
+ 
+
+//step 22
+
+import org.apache.spark.sql.functions.{concat,col,lit,udf,max,min,current_timestamp, current_date}
+
+val insuranceDFx= insurDF1.withColumnRenamed("StateCode","stcd").withColumnRenamed("SourceName","srcnm").
+withColumn("issueridcomposite",concat(col("IssuerId").cast("String"),col("IssuerId2").cast("String"))).
+withColumn("BusinessDate", concat(col("BusinessDate").substr(7,4),lit("-"),col("BusinessDate").substr(4,2),lit("-"),col("BusinessDate").substr(1,2)).cast(DateType)).
+withColumn("sysdt",lit(current_date())).withColumn("systs",lit(current_timestamp())).drop(col("DentalonlyPlan"))//.drop("_c9")//drop(col("DentalonlyPlan")) 
+
+insuranceDFx.printSchema()
+
+
+val map=Map(""->"null");
+    val dfcsvc=insuranceDFx.na.replace(Array("_c0","_c1","_c2","_c3","_c4","_c5","_c6","_c7","_c8","_c9"), map);
+//step 23 
+
+ val insureDFx=dfcsvc.na.drop(Array("IssuerId","IssuerId2","BusinessDate","Stcd","Srcnm","NetworkName","NetworkURL","custnum","issueridcomposite","sysdt","systs"));
+ 
+
+//**************udf*********************************************** 
+ 
+   val cleanUDF=new org.inceptez.spark.sql.reusablefw.allmethods;
+    
+     
+ spark.udf.register("removespecialchar",cleanUDF.remspecialchar _)
+    
+  val udftrim1 = udf(cleanUDF.remspecialchar _)
+  
+ //***************************************************************** 
+  
+  insureDFx.select(udftrim1(insureDFx("NetworkName"))).show(2,false) 
+ println("writing JSON data ") 
+ insureDFx.coalesce(1).write.mode("overwrite").option("compression","bzip2").option("timestampFormat","yyyy-MM-dd HH:mm:ss")
+.option("dateFormat","yyyy-dd-mm").json("hdfs://localhost:54310/user/hduser/hack2/hack-jason") 
+ 
+println("writing CSV data")
+ insureDFx.coalesce(1).write.mode("overwrite").option("header","true").option("timestampFormat","yyyy-MM-dd HH:mm:ss")
+  .option("delimiter","~")
+  .option("compression","gzip").csv("hdfs://localhost:54310/user/hduser/hack2/hack-csv")
+ 
+   
+
+//HIVE READ/WRITE
+println("Writing to hive")
+
+ 
+
+println("hive last write")
+
+//val insurDF1 = spark.read.option("delimiter",",").option("header","true").option("escape",",").option("inferschema","true")csv("file:///home/hduser/hack2/insuranceinfo2.csv","file:///home/hduser/hack2/insuranceinfo1x.csv")
+
+insureDFx.write.mode("overwrite").saveAsTable("default.insurehive_tbl")
+
+//32. 
+  val custstatesdf = spark.read.option("delimiter",",").option("header","false").csv("hdfs://localhost:54310/user/hduser//hack2/custs_states.csv")
+  
+  
+
+ //step 33. 
+   
+println("cust")
+  custstatesdf.printSchema()
+
+val custfilterdf = custstatesdf.filter(col("_c2").isNotNull)
+
+val custfilterdf1=custfilterdf.toDF("custid","firstname","lastname","age","profession")
+
+ custfilterdf1.printSchema()
+custfilterdf1.take(5).foreach(println)
+
+
+println("state")
+
+
+
+val statesfilterdf = custstatesdf.filter(col("_c2").isNull)
+
+
+
+
+val statesfilterdf1=statesfilterdf.toDF("stateCode","StateName","col3","col4","col5")
+
+statesfilterdf1.printSchema()
+//step 34 
+
+ 
+ 
+   custfilterdf1.createOrReplaceTempView("custView1")
+   
+    spark.sql(""" select * from custView1 """).show(2)
+    
+  statesfilterdf1.createOrReplaceTempView("statesView1")
+   
+    spark.sql(""" select * from statesView1 """).show(2)
+   
+   insuranceDFx.createOrReplaceTempView("insureView")
+   
+   //step 34,35,36  
+   //************************************UDF ***************************   
+   
+  val cleanUDF1=new org.inceptez.spark.sql.reusablefw.allmethods;
+    
+     
+ spark.udf.register("remspecialcharudf",cleanUDF1.remspecialchar _)
+    
+ val udftrim2 = udf(cleanUDF1.remspecialchar _)
+ 
+ spark.sql(""" select * from insureView where stcd ="NM"   """).show(2)
+ 
+//***********s*********************************************************
+ 
+//step 37 complete a,bc,d 
+ spark.sql(""" select b.* from insureView a inner join custView1 b
+                       on a.custnum = b.custid """).show(2)
+                       
+ val finaldf= spark.sql("""select a.IssuerId,a.IssuerId2 ,remspecialcharudf(NetworkName) as cleannetworkname  
+                        
+                             ,case substr(a.NetworkURL,1,5) 
+                               when "http:" then "http"
+                               when "HTTP:" then "http"
+                               when "https" then "https"
+                               else "noprotocol"
+                              end  protocol  
+                              ,a.stcd 
+                              ,b.stateCode
+                              ,b.stateName
+                              ,c.age                  as age
+                             ,c.profession            as profession
+                             ,srcnm
+                             ,MarketCoverage
+                             ,issueridcomposite
+                             ,sysdt
+                             ,systs      
+                       from insureView a inner join statesView1 b
+                       on a.stcd = b.stateCode
+                       inner join custView1 c
+                       on a.custnum = c.custid
+                    
+                                            """) 
+                                            
+      finaldf.createOrReplaceTempView("finaldfView1")     
+      
+      // step 38. writing to parquet :
+      
+      println("write as parquet")
+      finaldf.write.mode("overwrite").option("compression","none").parquet("hdfs://localhost:54310/user/hduser/insureparquet1")
+      
+      // step 39 . data processing                                       
+      val finaldfext = spark.sql(""" select ROW_NUMBER() OVER(PARTITION BY protocol ORDER BY count desc) as seq, age, count, 
+                           statename, protocol, profession from (select avg(age) as age, count(*)  as count , stateName,protocol, profession 
+                    from finaldfView1
+                   
+                    group by stateName,protocol, profession)
+                   """)                                      
+      finaldfext.take(10).foreach(println)             
+      
+      //store the date to mysql 
+      
+      
+println("Writing to mysql")
+
+val prop=new java.util.Properties();
+prop.put("user", "root")
+prop.put("password", "root")
+
+finaldfext.write.mode("overwrite").jdbc("jdbc:mysql://localhost/hackDB","insuredata",prop)
+
+
+      
+
+  }
+}

@@ -1,0 +1,194 @@
+package org.inceptz.spark.hackathon
+
+
+import org.apache.spark.SparkContext
+import org.apache.spark.SparkConf
+import org.apache.spark.sql.SQLContext
+import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.hive.HiveContext;
+import org.apache.spark.sql.types.{StructType, StructField, StringType, IntegerType, DateType, TimestampType}
+
+
+
+ case class insure(IssuerId:Int,IssuerId2:Int,BusinessDate:String,StateCode:String,SourceName:String,
+       NetworkName:String,NetworkURL:String,custnum:String,MarketCoverage:String,DentalOnlyPlan:String)
+object hackCore {
+   // final result done 
+      val insurschema = StructType(Array(StructField("IssuerId", IntegerType,
+true),StructField("IssuerId2", IntegerType, true),StructField("BusinessDate", StringType,
+true),StructField("StateCode", StringType, true),StructField("SourceName", StringType,
+true),StructField("NetworkName", StringType, true),StructField("NetworkURL", StringType,
+true),StructField("custnum", StringType, true),StructField("MarketCoverage", StringType,
+true),StructField("DentalOnlyPlan", StringType, true)));
+  def main(args:Array[String])
+  {
+ 
+    val conf = new SparkConf().setAppName("SQL1").setMaster("local[*]").set("spark.sql.catalogImplementation","hive")
+    .set("hive.exec.dynamic.partition.mode","nonstrict")
+    val sc = new SparkContext(conf)
+    val sqlc = new SQLContext(sc)
+    sc.setLogLevel("ERROR");
+
+ 
+    
+val spark=SparkSession.builder().appName("SQL End to End App").master("local[*]").getOrCreate();
+
+   //csv("hdfs://localhost:54310/user/hduser/sparkhack2/insuranceinfo2.csv","hdfs://localhost:54310/user/hduser/sparkhack2/insuranceinfo1x.csv")
+   //IssuerId,IssuerId2,BusinessDate,StateCode,SourceName,NetworkName,NetworkURL,custnum,MarketCoverage,DentalOnlyPlan
+   
+   //step 1,2,3
+
+   val file1 = sc.textFile("hdfs://localhost:54310/user/hduser/sparkhack2/insuranceinfo1x.csv").map( x=> x.trim()).filter(x=> x.length() > 0 ).filter(x=> !(x.contains("IssuerId")))
+    val file2 = sc.textFile("hdfs://localhost:54310/user/hduser/sparkhack2/insuranceinfo2.csv").map( x=> x.trim()).filter(x=> x.length() > 0 ).filter(x=> !(x.contains("IssuerId")))
+    println("file1")
+    println(file1.first());
+    println(file1.count());
+    
+    println("file2")
+     println(file2.first());
+    println(file2.count());
+    file1.take(5).foreach(println)
+    
+    
+    //step 4,5,6
+    
+    val fileRDD1 =  file1.map(x=>x.split(",",-1))
+    
+     val fileRDD2 =  file2.map(x=>x.split(",",-1))
+    
+    println(fileRDD1.count());
+    
+   
+    val file1RDDrej = fileRDD1.filter(x=>x.length == 10)
+    
+    val file2RDDrej = fileRDD2.filter(x=>x.length == 10)
+    
+    
+    println(fileRDD2.count())
+   
+     
+    //step 7
+    val schemaRDD1 = file1RDDrej.map(x=>insure(x(0).toInt, x(1).toInt, x(2),x(3),x(4),x(5),x(6),x(7),x(8),x(9)))
+    
+    val schemaRDD2 = file2RDDrej.map(x=>insure(x(0).toInt, x(1).toInt, x(2),x(3),x(4),x(5),x(6),x(7),x(8),x(9)))
+    
+    val Reject1RDD = fileRDD1.filter(x=>x.length != 10)
+    
+    println("rejected count file2")
+    
+    //step 8 
+    println(Reject1RDD.count())
+
+    val Reject2RDD = fileRDD2.filter(x=>x.length != 10)
+   
+    //step 9
+    println("rejected count file2")
+    
+    println(Reject2RDD.count())
+       
+    val tempprint = schemaRDD2.map(x=> (x.IssuerId,x.IssuerId2,x.BusinessDate,x.StateCode,x.SourceName
+        )).take(5)
+    
+    tempprint.foreach(println)
+    
+     
+    val finalRDD1 = file1RDDrej.filter(x=> (x(0).length > 0) && (x(1).length >0))
+    
+    val finalRDD2 = file2RDDrej.filter(x=> (x(0).length > 0) && (x(1).length >0))
+    
+    println("final RDD counts")
+    
+    println(finalRDD1.count())
+    
+    println(finalRDD2.count())
+    
+    
+    val CleanRDD1 = finalRDD1.map(x=>insure(x(0).toInt, x(1).toInt, x(2),x(3),x(4),x(5),x(6),x(7),x(8),x(9)))
+    
+    val CleanRDD2 = finalRDD2.map(x=>insure(x(0).toInt, x(1).toInt, x(2),x(3),x(4),x(5),x(6),x(7),x(8),x(9)))
+    
+    //12. Merging 
+    val insuredatamerged  = CleanRDD1.union(CleanRDD2)
+    
+    
+    val tempmerged  = CleanRDD1.union(CleanRDD2)
+    //***************************************************verfification ************************************************
+    val tempRDD = insuredatamerged.map(x=> (x.IssuerId, x.IssuerId, x.BusinessDate , x.custnum))
+    
+    tempRDD.take(10).foreach(println)
+    //***************************************************************************************************
+    
+    //13.Catching
+    
+   insuredatamerged.persist(org.apache.spark.storage.StorageLevel.MEMORY_ONLY_SER)
+   
+   //14. count matching between merged  file and file + file 2
+    
+    println("merged count")
+    println(insuredatamerged.count())
+    
+    val csv1cnt = CleanRDD1.count()
+    val csv2cnt = CleanRDD2.count()
+    val total = csv1cnt + csv2cnt 
+    println("final --> csv1+csv2 ="+ total)
+     
+    //15. Remove Duplicates 
+    
+    val distinctmerged = insuredatamerged.distinct 
+    
+    println("merged file distinct count =" + distinctmerged.count())
+    
+    val duplicatemerged = tempmerged.subtract(distinctmerged).map(x=>(x.IssuerId,x.IssuerId2))
+    
+    println("duplicate count form merged file= "+ duplicatemerged.count()) 
+    
+    //16.Increase the no of partition
+    
+     
+    println("before repartition=" + distinctmerged.partitions.size)
+    
+   val paritionmerg =  distinctmerged.repartition(8)
+    
+    println("after repartition=" + paritionmerg.partitions.size)
+    
+   //17. split the RDD based on date 
+    
+    val rdd_20191001 = distinctmerged.filter(x=> (x.BusinessDate == "2019-10-01") || (x.BusinessDate == "01-10-2019"))
+    val rdd_20191002 = distinctmerged.filter(x=> (x.BusinessDate == "2019-10-02") || (x.BusinessDate == "02-10-2019"))
+    
+    println("count of rdd_20191001=" + rdd_20191001.count())
+    println("count of rdd_20191002=" + rdd_20191002.count())
+
+    //18. save the data to HDFS
+    
+ 
+  
+  println("count of rdd_20191002=" + rdd_20191002.count())
+  
+  
+  //19.create as DF 
+  import spark.implicits._
+  import sqlc.implicits._
+  
+  
+    import sqlc.implicits._
+   
+  println("Creating Dataframe and DataSet")
+
+ 
+  val insuredaterepartdf1 = spark.createDataFrame(CleanRDD1)
+  
+   
+    
+    insuredaterepartdf1.printSchema()
+    
+     
+    
+    //clear the cache
+    
+    insuredatamerged .unpersist()
+   
+   
+    
+  }
+}

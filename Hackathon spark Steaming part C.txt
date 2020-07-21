@@ -1,0 +1,83 @@
+package org.inceptz.spark.hackathon
+
+import org.apache.spark._
+import org.apache.spark.SparkConf
+import org.apache.spark.SparkContext
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.streaming.StreamingContext._
+import org.apache.spark.streaming.{Seconds, StreamingContext}
+import StreamingContext._
+import org.apache.spark.SparkContext._
+
+ object hackStream {
+  
+  def main(args:Array[String]){
+    
+   val spark=SparkSession.builder().appName("Sample sql app").master("local[*]")
+.config("hive.metastore.uris","thrift://localhost:9083")
+.config("spark.sql.warehouse.dir","hdfs://localhost:54310/user/hive/warehouse")
+.config("spark.history.fs.logDirectory", "file:///tmp/spark-events")
+.config("spark.eventLog.dir", "file:////tmp/spark-events")
+.config("spark.eventLog.enabled", "true")
+.config("spark.sql.crossJoin.enabled","true")
+.enableHiveSupport().getOrCreate();
+spark.sparkContext.setLogLevel("error")
+    
+    
+    
+    val sc = spark.sparkContext
+    val sql = spark.sqlContext
+    
+    sc.setLogLevel("error");
+    
+    val ssc = new StreamingContext(sc, Seconds(15))
+    
+    val stopWords = sc.textFile("file:///home/hduser/hack2/stopwords")
+    
+     
+    import spark.implicits._
+    import org.apache.spark.sql.functions.{concat,col,lit,udf,max,min,current_timestamp, current_date}
+    
+    val lines = ssc.socketTextStream("localhost", 9999)
+    
+    val stopWordsDF  = stopWords.toDF("words":String) 
+    
+    stopWordsDF.printSchema()
+    
+    stopWordsDF.createOrReplaceTempView("wordsTable")
+    
+    lines.foreachRDD(x=> {
+      
+      val chatData = x.map(x=>x.split("~")).map(x=> ( x(0),x(1),x(2) ) )
+      
+      val chatDataDF = chatData.toDF("id":String,"chat":String,"type":String)
+      
+      chatDataDF.printSchema()
+      
+       
+      
+      chatDataDF.createOrReplaceTempView("chatTable")
+      
+      val chatEnrich = spark.sql(""" select id, explode(split(trim(chat)," ")) as chat from chatTable 
+                                                                        where type="c"
+                                                                         and id is not null
+                                                                         and chat not in(select words from WordsTable) 
+                                                                         
+                                      
+        
+        """)
+      
+      
+     
+    chatEnrich.write.mode("append").saveAsTable("default.chatTable")   
+      
+    })
+    
+    
+     
+     ssc.start()
+ssc.awaitTermination() 
+    
+  }
+  
+}
